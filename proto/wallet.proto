@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package wallet;
+
+import "google/protobuf/timestamp.proto";
+
+service WalletService {
+  rpc GetWalletInfo(WalletRequest) returns (WalletInfo);
+  rpc GetPolymarketProfile(WalletRequest) returns (PolymarketProfile);
+  rpc GetFullProfile(WalletRequest) returns (FullProfile);
+}
+
+message WalletRequest {
+  string wallet = 1;
+}
+
+message WalletInfo {
+  string wallet = 1;
+  string polygon_balance = 2;
+  int32 tx_count = 3;
+  google.protobuf.Timestamp last_enriched_at = 4;
+}
+
+message PolymarketProfile {
+  string wallet = 1;
+  string username = 2;
+  string display_name = 3;
+  string total_volume = 4;
+  string pnl = 5;
+  int32 num_trades = 6;
+  google.protobuf.Timestamp last_enriched_at = 7;
+}
+
+message FullProfile {
+  string wallet = 1;
+  string polygon_balance = 2;
+  int32 tx_count = 3;
+  string username = 4;
+  string display_name = 5;
+  string total_volume = 6;
+  string pnl = 7;
+  int32 num_trades = 8;
+  google.protobuf.Timestamp last_enriched_at = 9;
+}

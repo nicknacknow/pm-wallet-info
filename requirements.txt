@@ -1,0 +1,7 @@
+asyncpg
+grpcio
+grpcio-tools
+httpx
+prometheus-client
+protobuf
+redis
