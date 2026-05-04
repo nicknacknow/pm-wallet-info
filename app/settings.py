@@ -21,7 +21,11 @@ POLYGONSCAN_BASE_URL = os.getenv(
 )
 POLYMARKET_BASE_URL = os.getenv(
     "POLYMARKET_BASE_URL",
-    "https://data-api.polymarket.com/profiles",
+    "https://gamma-api.polymarket.com/public-profile",
+)
+POLYMARKET_DATA_BASE_URL = os.getenv(
+    "POLYMARKET_DATA_BASE_URL",
+    "https://data-api.polymarket.com",
 )
 HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "5"))
 HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "2"))

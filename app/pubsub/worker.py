@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -16,7 +16,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from app.api.polymarket import fetch_polymarket_profile
 from app.api.polygonscan import fetch_wallet_chain_info
 from app.db import (
-    fetch_last_enriched_at,
     seed_seen_wallets,
     upsert_pm_profile,
     upsert_wallet_info,
@@ -32,7 +31,7 @@ from app.metrics import (
     record_wallet_enrichment_error,
     record_wallet_event_processed,
 )
-from app.settings import CHANNEL, ENRICHMENT_TTL_HOURS, REDIS_URL, RETRY_DELAY_SECONDS
+from app.settings import CHANNEL, REDIS_URL, RETRY_DELAY_SECONDS
 
 
 logger = logging.getLogger(__name__)
@@ -44,12 +43,6 @@ def _extract_wallet(message: dict[str, Any]) -> str | None:
         return None
     wallet = trade.get("wallet")
     return str(wallet) if wallet else None
-
-
-def _is_stale(last_enriched_at: datetime | None) -> bool:
-    if last_enriched_at is None:
-        return True
-    return datetime.now(timezone.utc) - last_enriched_at > timedelta(hours=ENRICHMENT_TTL_HOURS)
 
 
 async def close_redis_subscription(
@@ -108,23 +101,17 @@ async def process_wallet_event(
     redis_client: redis.Redis,
     wallet: str,
 ) -> None:
-    """Run the new-wallet and stale-wallet enrichment checks."""
+    """Refresh wallet data for every live trade event."""
     is_known = await redis_client.sismember("seen_wallets", wallet)
 
     if not is_known:
         logger.info("new wallet detected wallet=%s", wallet)
-        await enrich_wallet(db_pool, wallet)
         await redis_client.sadd("seen_wallets", wallet)
-        record_wallet_enriched()
-        return
+    else:
+        logger.info("seen wallet refresh wallet=%s", wallet)
 
-    async with db_pool.acquire() as connection:
-        last_enriched_at = await fetch_last_enriched_at(connection, wallet)
-
-    if _is_stale(last_enriched_at):
-        logger.info("wallet stale, refreshing wallet=%s", wallet)
-        await enrich_wallet(db_pool, wallet)
-        record_wallet_enriched()
+    await enrich_wallet(db_pool, wallet)
+    record_wallet_enriched()
 
 
 async def stream_trade_events_once(db_pool: asyncpg.Pool) -> None:
