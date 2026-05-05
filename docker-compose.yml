@@ -1,0 +1,28 @@
+services:
+  pm-wallet-info:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pm-wallet-info
+    ports:
+      - "18551:50051"
+    environment:
+      REDIS_URL:               ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      DATABASE_URL:            ${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5432/trade_store}
+      CHANNEL:                 ${CHANNEL:-trades.raw}
+      GRPC_PORT:               ${GRPC_PORT:-50051}
+      RETRY_DELAY_SECONDS:     ${RETRY_DELAY_SECONDS:-5}
+      ENRICHMENT_TTL_HOURS:    ${ENRICHMENT_TTL_HOURS:-24}
+      POLYGONSCAN_API_KEY:     ${POLYGONSCAN_API_KEY}
+      POLYMARKET_PROFILE_URL:  ${POLYMARKET_PROFILE_URL:-https://gamma-api.polymarket.com/public-profile}
+      POLYMARKET_POSITIONS_URL: ${POLYMARKET_POSITIONS_URL:-https://data-api.polymarket.com/positions}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - pm-project
+
+networks:
+  pm-project:
+    external: true
+    name: pm-project
