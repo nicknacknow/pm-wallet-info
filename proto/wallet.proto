@@ -24,13 +24,13 @@ message PolymarketProfile {
   string profile_status  = 2;
   string username        = 3;
   string display_name    = 4;
-  string total_volume    = 5;
-  string pnl             = 6;
-  int32  num_trades      = 7;
-  int32  positions_count = 8;
-  int32  active_positions = 9;
-  string positions_value = 10;
-  string positions_pnl   = 11;
+  google.protobuf.Timestamp created_at = 5;
+  int32  total_trades      = 6;
+  string total_volume      = 7;
+  string total_realized_pnl = 8;
+  string win_rate          = 9;
+  string avg_pnl_per_trade = 10;
+  string portfolio_value   = 11;
   google.protobuf.Timestamp last_enriched_at = 12;
 }
 
@@ -41,11 +41,12 @@ message FullProfile {
   string profile_status  = 4;
   string username        = 5;
   string display_name    = 6;
-  string total_volume    = 7;
-  string pnl             = 8;
-  int32  num_trades      = 9;
-  int32  positions_count = 10;
-  int32  active_positions = 11;
-  string positions_value = 12;
-  google.protobuf.Timestamp last_enriched_at = 13;
+  google.protobuf.Timestamp created_at = 7;
+  int32  total_trades      = 8;
+  string total_volume      = 9;
+  string total_realized_pnl = 10;
+  string win_rate          = 11;
+  string avg_pnl_per_trade = 12;
+  string portfolio_value   = 13;
+  google.protobuf.Timestamp last_enriched_at = 14;
 }
