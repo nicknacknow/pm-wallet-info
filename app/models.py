@@ -38,10 +38,11 @@ class FullWalletProfile:
     profile_status: str | None
     username: str | None
     display_name: str | None
+    created_at: datetime | None
+    total_trades: int | None
     total_volume: Decimal | None
-    pnl: Decimal | None
-    num_trades: int | None
-    positions_count: int | None
-    active_positions: int | None
-    positions_value: Decimal | None
+    total_realized_pnl: Decimal | None
+    win_rate: Decimal | None
+    avg_pnl_per_trade: Decimal | None
+    portfolio_value: Decimal | None
     last_enriched_at: datetime | None

@@ -61,21 +61,21 @@ ON CONFLICT (wallet) DO UPDATE SET
 _UPSERT_PM_PROFILE = """
 INSERT INTO pm_profiles (
     wallet, profile_status, username, display_name,
-    total_volume, pnl, num_trades,
-    positions_count, active_positions, positions_value, positions_pnl,
+    created_at, total_trades, total_volume, total_realized_pnl,
+    win_rate, avg_pnl_per_trade, portfolio_value,
     last_enriched_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (wallet) DO UPDATE SET
     profile_status   = EXCLUDED.profile_status,
     username         = EXCLUDED.username,
     display_name     = EXCLUDED.display_name,
+    created_at       = EXCLUDED.created_at,
+    total_trades     = EXCLUDED.total_trades,
     total_volume     = EXCLUDED.total_volume,
-    pnl              = EXCLUDED.pnl,
-    num_trades       = EXCLUDED.num_trades,
-    positions_count  = EXCLUDED.positions_count,
-    active_positions = EXCLUDED.active_positions,
-    positions_value  = EXCLUDED.positions_value,
-    positions_pnl    = EXCLUDED.positions_pnl,
+    total_realized_pnl = EXCLUDED.total_realized_pnl,
+    win_rate         = EXCLUDED.win_rate,
+    avg_pnl_per_trade = EXCLUDED.avg_pnl_per_trade,
+    portfolio_value  = EXCLUDED.portfolio_value,
     last_enriched_at = EXCLUDED.last_enriched_at;
 """
 
@@ -90,8 +90,8 @@ FROM wallet_info WHERE wallet = $1;
 
 _SELECT_PM_PROFILE = """
 SELECT wallet, profile_status, username, display_name,
-       total_volume, pnl, num_trades,
-       positions_count, active_positions, positions_value, positions_pnl,
+       created_at, total_trades, total_volume, total_realized_pnl,
+       win_rate, avg_pnl_per_trade, portfolio_value,
        last_enriched_at
 FROM pm_profiles WHERE wallet = $1;
 """
@@ -127,13 +127,13 @@ async def upsert_pm_profile(conn: asyncpg.Connection, profile: PolymarketProfile
         profile.profile_status,   # $2
         profile.username,         # $3
         profile.display_name,     # $4
-        profile.total_volume,     # $5
-        profile.pnl,              # $6
-        profile.num_trades,       # $7
-        profile.positions_count,  # $8
-        profile.active_positions, # $9
-        profile.positions_value,  # $10
-        profile.positions_pnl,    # $11
+        profile.created_at,       # $5
+        profile.total_trades,     # $6
+        profile.total_volume,     # $7
+        profile.total_realized_pnl,  # $8
+        profile.win_rate,         # $9
+        profile.avg_pnl_per_trade,  # $10
+        profile.portfolio_value,  # $11
         profile.last_enriched_at, # $12
     )
     logger.debug("upserted pm_profile wallet=%s status=%s", profile.wallet, profile.profile_status)
@@ -166,12 +166,13 @@ async def fetch_full_profile(conn: asyncpg.Connection, wallet: str) -> FullWalle
         profile_status=pm["profile_status"]    if pm else None,
         username=pm["username"]                if pm else None,
         display_name=pm["display_name"]        if pm else None,
+        created_at=pm["created_at"]            if pm else None,
+        total_trades=pm["total_trades"]        if pm else None,
         total_volume=pm["total_volume"]        if pm else None,
-        pnl=pm["pnl"]                          if pm else None,
-        num_trades=pm["num_trades"]            if pm else None,
-        positions_count=pm["positions_count"]  if pm else None,
-        active_positions=pm["active_positions"] if pm else None,
-        positions_value=pm["positions_value"]  if pm else None,
+        total_realized_pnl=pm["total_realized_pnl"] if pm else None,
+        win_rate=pm["win_rate"]                if pm else None,
+        avg_pnl_per_trade=pm["avg_pnl_per_trade"] if pm else None,
+        portfolio_value=pm["portfolio_value"]  if pm else None,
         last_enriched_at=(
             pm["last_enriched_at"]  if pm  and pm["last_enriched_at"]  else
             wi["last_enriched_at"]  if wi  else None
