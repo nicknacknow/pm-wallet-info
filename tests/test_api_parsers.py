@@ -49,17 +49,17 @@ class TestPolygonscanParsers:
 
 class TestPolymarketParsers:
     def test_extract_profile_list(self):
-        payload = [{"username": "alice", "name": "Alice"}]
+        payload = [{"name": "alice", "pseudonym": "Alice"}]
         entry = _extract_profile_entry(payload)
-        assert entry["username"] == "alice"
+        assert entry["name"] == "alice"
 
     def test_extract_profile_dict_direct(self):
-        payload = {"username": "bob"}
-        assert _extract_profile_entry(payload)["username"] == "bob"
+        payload = {"name": "bob"}
+        assert _extract_profile_entry(payload)["name"] == "bob"
 
     def test_extract_profile_dict_with_data(self):
-        payload = {"data": [{"username": "carol"}]}
-        assert _extract_profile_entry(payload)["username"] == "carol"
+        payload = {"data": [{"name": "carol"}]}
+        assert _extract_profile_entry(payload)["name"] == "carol"
 
     def test_extract_profile_empty_list(self):
         assert _extract_profile_entry([]) == {}

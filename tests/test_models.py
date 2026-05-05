@@ -35,18 +35,18 @@ def test_polymarket_profile_info_fields():
         profile_status="public",
         username="alice",
         display_name="Alice",
+        created_at=_now(),
+        total_trades=20,
         total_volume=Decimal("500"),
-        pnl=Decimal("50"),
-        num_trades=20,
-        positions_count=5,
-        active_positions=3,
-        positions_value=Decimal("200"),
-        positions_pnl=Decimal("10"),
+        total_realized_pnl=Decimal("50"),
+        win_rate=Decimal("0.6"),
+        avg_pnl_per_trade=Decimal("2.5"),
+        portfolio_value=Decimal("200"),
         last_enriched_at=_now(),
     )
     assert p.profile_status == "public"
     assert p.username == "alice"
-    assert p.pnl == Decimal("50")
+    assert p.total_realized_pnl == Decimal("50")
 
 
 def test_is_stale_old():
@@ -78,13 +78,14 @@ def test_full_wallet_profile_fields():
         profile_status="public",
         username="bob",
         display_name="Bob",
+        created_at=_now(),
+        total_trades=42,
         total_volume=Decimal("1000"),
-        pnl=Decimal("-50"),
-        num_trades=42,
-        positions_count=7,
-        active_positions=3,
-        positions_value=Decimal("500"),
+        total_realized_pnl=Decimal("-50"),
+        win_rate=Decimal("0.4"),
+        avg_pnl_per_trade=Decimal("-1.19"),
+        portfolio_value=Decimal("500"),
         last_enriched_at=_now(),
     )
-    assert fp.pnl == Decimal("-50")
+    assert fp.total_realized_pnl == Decimal("-50")
     assert fp.username == "bob"
