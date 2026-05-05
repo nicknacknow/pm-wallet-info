@@ -15,7 +15,8 @@ services:
       ENRICHMENT_TTL_HOURS:    ${ENRICHMENT_TTL_HOURS:-24}
       POLYGONSCAN_API_KEY:     ${POLYGONSCAN_API_KEY}
       POLYMARKET_PROFILE_URL:  ${POLYMARKET_PROFILE_URL:-https://gamma-api.polymarket.com/public-profile}
-      POLYMARKET_POSITIONS_URL: ${POLYMARKET_POSITIONS_URL:-https://data-api.polymarket.com/positions}
+      POLYMARKET_CLOSED_POS_URL: ${POLYMARKET_CLOSED_POS_URL:-https://data-api.polymarket.com/closed-positions}
+      POLYMARKET_VALUE_URL:    ${POLYMARKET_VALUE_URL:-https://data-api.polymarket.com/value}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
