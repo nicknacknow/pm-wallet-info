@@ -45,6 +45,36 @@ CREATE INDEX IF NOT EXISTS idx_pm_profiles_total_trades    ON pm_profiles(total_
 CREATE INDEX IF NOT EXISTS idx_pm_profiles_total_realized_pnl           ON pm_profiles(total_realized_pnl);
 """
 
+_PM_PROFILES_MIGRATION = """
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS profile_status TEXT;
+UPDATE pm_profiles SET profile_status = 'unknown' WHERE profile_status IS NULL;
+ALTER TABLE pm_profiles ALTER COLUMN profile_status SET DEFAULT 'unknown';
+ALTER TABLE pm_profiles ALTER COLUMN profile_status SET NOT NULL;
+
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS total_trades INTEGER;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS total_volume NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS total_realized_pnl NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS win_rate NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS avg_pnl_per_trade NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS portfolio_value NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS last_enriched_at TIMESTAMPTZ;
+
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS pnl;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS num_trades;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS positions_count;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS active_positions;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS positions_value;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS positions_pnl;
+
+DROP INDEX IF EXISTS idx_pm_profiles_pnl;
+DROP INDEX IF EXISTS idx_pm_profiles_num_trades;
+DROP INDEX IF EXISTS idx_pm_profiles_positions_value;
+DROP INDEX IF EXISTS idx_pm_profiles_positions_pnl;
+CREATE INDEX IF NOT EXISTS idx_pm_profiles_total_trades ON pm_profiles(total_trades);
+CREATE INDEX IF NOT EXISTS idx_pm_profiles_total_realized_pnl ON pm_profiles(total_realized_pnl);
+"""
+
 # ---------------------------------------------------------------------------
 # Upserts
 # ---------------------------------------------------------------------------
@@ -106,6 +136,7 @@ _SELECT_ALL_WALLETS   = "SELECT wallet FROM wallet_info;"
 async def bootstrap_schema(conn: asyncpg.Connection) -> None:
     """Create tables and indexes if they don't exist."""
     await conn.execute(_SCHEMA)
+    await conn.execute(_PM_PROFILES_MIGRATION)
     logger.info("schema bootstrapped")
 
 
