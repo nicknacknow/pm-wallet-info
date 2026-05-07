@@ -1,13 +1,11 @@
 syntax = "proto3";
-
 package wallet;
-
 import "google/protobuf/timestamp.proto";
 
 service WalletService {
-  rpc GetWalletInfo(WalletRequest) returns (WalletInfo);
-  rpc GetPolymarketProfile(WalletRequest) returns (PolymarketProfile);
-  rpc GetFullProfile(WalletRequest) returns (FullProfile);
+  rpc GetWalletInfo        (WalletRequest) returns (WalletInfo);
+  rpc GetPolymarketProfile (WalletRequest) returns (PolymarketProfile);
+  rpc GetFullProfile       (WalletRequest) returns (FullProfile);
 }
 
 message WalletRequest {
@@ -15,30 +13,40 @@ message WalletRequest {
 }
 
 message WalletInfo {
-  string wallet = 1;
+  string wallet          = 1;
   string polygon_balance = 2;
-  int32 tx_count = 3;
+  int32  tx_count        = 3;
   google.protobuf.Timestamp last_enriched_at = 4;
 }
 
 message PolymarketProfile {
-  string wallet = 1;
-  string username = 2;
-  string display_name = 3;
-  string total_volume = 4;
-  string pnl = 5;
-  int32 num_trades = 6;
-  google.protobuf.Timestamp last_enriched_at = 7;
+  string wallet          = 1;
+  string profile_status  = 2;
+  string username        = 3;
+  string display_name    = 4;
+  google.protobuf.Timestamp created_at = 5;
+  int32  total_trades      = 6;
+  string total_volume      = 7;
+  string total_realized_pnl = 8;
+  string win_rate          = 9;
+  string avg_pnl_per_trade = 10;
+  string portfolio_value   = 11;
+  google.protobuf.Timestamp last_enriched_at = 12;
 }
 
 message FullProfile {
-  string wallet = 1;
+  string wallet          = 1;
   string polygon_balance = 2;
-  int32 tx_count = 3;
-  string username = 4;
-  string display_name = 5;
-  string total_volume = 6;
-  string pnl = 7;
-  int32 num_trades = 8;
-  google.protobuf.Timestamp last_enriched_at = 9;
+  int32  tx_count        = 3;
+  string profile_status  = 4;
+  string username        = 5;
+  string display_name    = 6;
+  google.protobuf.Timestamp created_at = 7;
+  int32  total_trades      = 8;
+  string total_volume      = 9;
+  string total_realized_pnl = 10;
+  string win_rate          = 11;
+  string avg_pnl_per_trade = 12;
+  string portfolio_value   = 13;
+  google.protobuf.Timestamp last_enriched_at = 14;
 }

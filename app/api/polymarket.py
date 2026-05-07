@@ -1,10 +1,10 @@
-"""Polymarket profile client."""
-
+"""Polymarket profile + positions client."""
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -13,219 +13,182 @@ from app.models import PolymarketProfileInfo
 from app.settings import (
     HTTP_MAX_RETRIES,
     HTTP_TIMEOUT_SECONDS,
-    POLYMARKET_BASE_URL,
-    POLYMARKET_DATA_BASE_URL,
+    POLYMARKET_PROFILE_URL,
+    POLYMARKET_CLOSED_POS_URL,
+    POLYMARKET_VALUE_URL,
 )
 
+logger = logging.getLogger(__name__)
 
-async def _get_json(
+
+# ---------------------------------------------------------------------------
+# HTTP helpers
+# ---------------------------------------------------------------------------
+
+async def _get_with_retry(
     client: httpx.AsyncClient,
     url: str,
     params: dict[str, Any],
+    label: str,
 ) -> Any:
-    response = await client.get(url, params=params)
-    response.raise_for_status()
-    return response.json()
-
-
-async def _request_with_retries(
-    client: httpx.AsyncClient,
-    url: str,
-    params: dict[str, Any],
-) -> Any:
-    last_error: Exception | None = None
+    last: Exception | None = None
     for attempt in range(HTTP_MAX_RETRIES + 1):
         try:
-            return await _get_json(client, url, params)
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise  # don't retry 404s
+            last = exc
         except (httpx.HTTPError, ValueError) as exc:
-            last_error = exc
-            if attempt >= HTTP_MAX_RETRIES:
-                break
-            await asyncio.sleep(2**attempt)
-    assert last_error is not None
-    raise last_error
+            last = exc
+        if attempt < HTTP_MAX_RETRIES:
+            wait = 2 ** attempt
+            logger.warning("polymarket %s attempt %d failed, retry in %ds", label, attempt, wait)
+            await asyncio.sleep(wait)
+    raise RuntimeError(f"polymarket {label} failed after {HTTP_MAX_RETRIES + 1} attempts") from last
 
 
-def _first_profile_entry(payload: Any) -> dict[str, Any] | None:
-    if isinstance(payload, list) and payload:
-        first_item = payload[0]
-        return first_item if isinstance(first_item, dict) else None
-    if isinstance(payload, dict):
-        if isinstance(payload.get("data"), list) and payload["data"]:
-            first_item = payload["data"][0]
-            return first_item if isinstance(first_item, dict) else None
-        return payload
-    return None
+# ---------------------------------------------------------------------------
+# Parsers
+# ---------------------------------------------------------------------------
 
-
-def _parse_decimal(value: Any) -> Decimal | None:
+def _dec(value: Any) -> Decimal | None:
     if value is None:
         return None
     try:
         return Decimal(str(value))
-    except Exception:
+    except (InvalidOperation, TypeError):
         return None
 
 
-def _parse_datetime(value: Any) -> datetime | None:
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
+def _sum_field(entries: list[dict[str, Any]], field: str) -> Decimal | None:
+    total, found = Decimal("0"), False
+    for e in entries:
+        v = _dec(e.get(field))
+        if v is not None:
+            total += v
+            found = True
+    return total if found else None
 
 
-def _coerce_position_entries(payload: Any) -> list[dict[str, Any]]:
+def _active_count(entries: list[dict[str, Any]]) -> int | None:
+    seen = False
+    count = 0
+    for e in entries:
+        v = _dec(e.get("currentValue"))
+        if v is not None:
+            seen = True
+            if v > 0:
+                count += 1
+    return count if seen else None
+
+
+def _extract_profile_entry(payload: Any) -> dict[str, Any]:
+    """Normalise whatever shape the profile endpoint returns to a single dict."""
+    if isinstance(payload, list) and payload:
+        first = payload[0]
+        return first if isinstance(first, dict) else {}
+    if isinstance(payload, dict):
+        if isinstance(payload.get("data"), list) and payload["data"]:
+            first = payload["data"][0]
+            return first if isinstance(first, dict) else {}
+        return payload
+    return {}
+
+
+def _extract_positions(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
+        return [p for p in payload if isinstance(p, dict)]
     if isinstance(payload, dict):
         for key in ("data", "positions", "results"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        return [payload]
+            v = payload.get(key)
+            if isinstance(v, list):
+                return [p for p in v if isinstance(p, dict)]
     return []
 
 
-def _sum_decimal(entries: list[dict[str, Any]], field: str) -> Decimal | None:
-    total = Decimal("0")
-    has_value = False
-
-    for entry in entries:
-        value = entry.get(field)
-        if value is None:
-            continue
-        try:
-            total += Decimal(str(value))
-            has_value = True
-        except Exception:
-            continue
-
-    return total if has_value else None
+def _parse_dt(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
-def _count_active_positions(entries: list[dict[str, Any]]) -> int | None:
-    active_count = 0
-    seen_any_value = False
-
-    for entry in entries:
-        current_value = _parse_decimal(entry.get("currentValue"))
-        if current_value is None:
-            continue
-        seen_any_value = True
-        if current_value != 0:
-            active_count += 1
-
-    return active_count if seen_any_value else None
-
+# ---------------------------------------------------------------------------
+# Main fetch
+# ---------------------------------------------------------------------------
 
 async def fetch_polymarket_profile(wallet: str) -> PolymarketProfileInfo:
-    """Fetch a wallet profile from Polymarket's API."""
     timeout = httpx.Timeout(HTTP_TIMEOUT_SECONDS)
-    params = {"address": wallet}
-    positions_url = f"{POLYMARKET_DATA_BASE_URL.rstrip('/')}/positions"
-    positions_params = {
-        "user": wallet,
-        "limit": 500,
-        "offset": 0,
-        "sortBy": "CURRENT",
-        "sortDirection": "DESC",
-    }
+    profile_params        = {"address": wallet}
+    closed_pos_params     = {"user": wallet, "limit": 500, "offset": 0}
+    value_params          = {"user": wallet}
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        profile_task = _request_with_retries(client, POLYMARKET_BASE_URL, params)
-        positions_task = _request_with_retries(client, positions_url, positions_params)
-
-        profile_result, positions_result = await asyncio.gather(
-            profile_task,
-            positions_task,
+        profile_res, closed_res, value_res = await asyncio.gather(
+            _get_with_retry(client, POLYMARKET_PROFILE_URL,        profile_params,    "profile"),
+            _get_with_retry(client, POLYMARKET_CLOSED_POS_URL,     closed_pos_params, "closed-positions"),
+            _get_with_retry(client, POLYMARKET_VALUE_URL,          value_params,      "value"),
             return_exceptions=True,
         )
 
-    positions_entries = _coerce_position_entries(positions_result) if not isinstance(positions_result, Exception) else []
-    positions_count = len(positions_entries) if not isinstance(positions_result, Exception) else None
-    active_positions_count = _count_active_positions(positions_entries)
-    positions_current_value = _sum_decimal(positions_entries, "currentValue")
-    positions_cash_pnl = _sum_decimal(positions_entries, "cashPnl")
-    positions_realized_pnl = _sum_decimal(positions_entries, "realizedPnl")
-    positions_total_bought = _sum_decimal(positions_entries, "totalBought")
-    positions_initial_value = _sum_decimal(positions_entries, "initialValue")
-    positions_status = "complete" if positions_entries else "no_positions" if not isinstance(positions_result, Exception) else "unknown"
-
-    profile_payload = None if isinstance(profile_result, Exception) else profile_result
-    entry = _first_profile_entry(profile_payload) or {}
-
-    if isinstance(profile_result, Exception):
-        if isinstance(profile_result, httpx.HTTPStatusError) and profile_result.response.status_code == 404:
-            profile_status = "private_or_missing"
-        else:
-            profile_status = "unknown"
-        username = None
-        display_name = None
-        profile_created_at = None
-        proxy_wallet = None
-        profile_image = None
-        display_username_public = None
-        bio = None
-        pseudonym = None
-        x_username = None
-        verified_badge = None
+    # --- profile ------------------------------------------------------------
+    if isinstance(profile_res, Exception):
+        is_404 = (
+            isinstance(profile_res, httpx.HTTPStatusError)
+            and profile_res.response.status_code == 404
+        )
+        profile_status = "private_or_missing" if is_404 else "error"
+        logger.warning("profile fetch failed wallet=%s status=%s", wallet, profile_status)
+        entry: dict[str, Any] = {}
     else:
         profile_status = "public"
-        username = entry.get("xUsername") or entry.get("username") or entry.get("handle") or entry.get("pseudonym") or entry.get("name")
-        display_name = entry.get("name") or entry.get("displayName") or entry.get("display_name") or entry.get("pseudonym")
-        profile_created_at = _parse_datetime(entry.get("createdAt"))
-        proxy_wallet = str(entry.get("proxyWallet")) if entry.get("proxyWallet") is not None else None
-        profile_image = str(entry.get("profileImage")) if entry.get("profileImage") is not None else None
-        display_username_public = entry.get("displayUsernamePublic")
-        bio = str(entry.get("bio")) if entry.get("bio") is not None else None
-        pseudonym = str(entry.get("pseudonym")) if entry.get("pseudonym") is not None else None
-        x_username = str(entry.get("xUsername")) if entry.get("xUsername") is not None else None
-        verified_badge = entry.get("verifiedBadge")
+        entry = _extract_profile_entry(profile_res)
 
-    total_volume = _parse_decimal(
-        entry.get("totalVolume")
-        or entry.get("total_volume")
-        or entry.get("volume")
-        or entry.get("volume24hr")
-        or entry.get("value")
+    # correct field names from actual API response
+    username     = entry.get("name")        # "kai03111"
+    display_name = entry.get("pseudonym")   # "Costly-Preparation"
+    created_at   = _parse_dt(entry.get("createdAt"))
+
+    # --- closed positions ---------------------------------------------------
+    closed: list[dict[str, Any]] = []
+    if not isinstance(closed_res, Exception):
+        closed = _extract_positions(closed_res)
+
+    total_trades      = len(closed) if not isinstance(closed_res, Exception) else None
+    total_volume      = _sum_field(closed, "totalBought")
+    total_realized_pnl = _sum_field(closed, "realizedPnl")
+    wins              = sum(1 for p in closed if (_dec(p.get("realizedPnl")) or Decimal(0)) > 0)
+    win_rate          = Decimal(wins) / Decimal(total_trades) if total_trades else None
+    avg_pnl_per_trade = (
+        total_realized_pnl / Decimal(total_trades)
+        if total_realized_pnl is not None and total_trades
+        else None
     )
-    if total_volume is None:
-        total_volume = positions_total_bought
+
+    # --- current value ------------------------------------------------------
+    portfolio_value = None
+    if not isinstance(value_res, Exception) and isinstance(value_res, list) and value_res:
+        portfolio_value = _dec(value_res[0].get("value"))
 
     return PolymarketProfileInfo(
         wallet=wallet,
         profile_status=profile_status,
-        username=str(username) if username is not None else None,
-        display_name=str(display_name) if display_name is not None else None,
+        username=username,
+        display_name=display_name,
+        created_at=created_at,
+        total_trades=total_trades,
         total_volume=total_volume,
-        pnl=positions_cash_pnl,
-        num_trades=entry.get("numTrades") or entry.get("num_trades") or entry.get("predictions"),
-        stats_status="complete" if not isinstance(positions_result, Exception) else "unknown",
-        positions_status=positions_status,
-        profile_created_at=profile_created_at,
-        proxy_wallet=proxy_wallet,
-        profile_image=profile_image,
-        display_username_public=display_username_public,
-        bio=bio,
-        pseudonym=pseudonym,
-        x_username=x_username,
-        verified_badge=verified_badge,
-        profile_payload=entry if profile_status == "public" else None,
-        positions_count=positions_count,
-        active_positions_count=active_positions_count,
-        positions_current_value=positions_current_value,
-        positions_cash_pnl=positions_cash_pnl,
-        positions_realized_pnl=positions_realized_pnl,
-        positions_total_bought=positions_total_bought,
-        positions_initial_value=positions_initial_value,
-        positions_payload=positions_entries if not isinstance(positions_result, Exception) else None,
+        total_realized_pnl=total_realized_pnl,
+        win_rate=win_rate,
+        avg_pnl_per_trade=avg_pnl_per_trade,
+        portfolio_value=portfolio_value,
         last_enriched_at=datetime.now(timezone.utc),
     )
-

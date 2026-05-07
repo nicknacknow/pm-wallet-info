@@ -1,406 +1,226 @@
-"""Postgres persistence for wallet enrichment data."""
-
+"""Postgres persistence — owns wallet_info and pm_profiles tables."""
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from typing import Any, Iterable
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import asyncpg
 
 from app.models import FullWalletProfile, PolymarketProfileInfo, WalletChainInfo
+from app.settings import ENRICHMENT_TTL_HOURS
 
-CREATE_WALLET_INFO_SQL = """
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
+
+_SCHEMA = """
 CREATE TABLE IF NOT EXISTS wallet_info (
-    wallet TEXT PRIMARY KEY,
-    polygon_balance NUMERIC,
-    tx_count INTEGER,
+    wallet           TEXT        PRIMARY KEY,
+    polygon_balance  NUMERIC,
+    tx_count         INTEGER,
     last_enriched_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-"""
 
-CREATE_PM_PROFILES_SQL = """
 CREATE TABLE IF NOT EXISTS pm_profiles (
-    wallet TEXT PRIMARY KEY REFERENCES wallet_info(wallet) ON DELETE CASCADE,
-    profile_status TEXT NOT NULL DEFAULT 'unknown',
-    username TEXT,
-    display_name TEXT,
-    total_volume NUMERIC,
-    pnl NUMERIC,
-    num_trades INTEGER,
-    stats_status TEXT NOT NULL DEFAULT 'unknown',
-    positions_status TEXT NOT NULL DEFAULT 'unknown',
-    profile_created_at TIMESTAMPTZ,
-    proxy_wallet TEXT,
-    profile_image TEXT,
-    display_username_public BOOLEAN,
-    bio TEXT,
-    pseudonym TEXT,
-    x_username TEXT,
-    verified_badge BOOLEAN,
-    profile_payload JSONB,
-    positions_count INTEGER,
-    active_positions_count INTEGER,
-    positions_current_value NUMERIC,
-    positions_cash_pnl NUMERIC,
-    positions_realized_pnl NUMERIC,
-    positions_total_bought NUMERIC,
-    positions_initial_value NUMERIC,
-    positions_payload JSONB,
-    last_enriched_at TIMESTAMPTZ
+    wallet              TEXT PRIMARY KEY REFERENCES wallet_info(wallet) ON DELETE CASCADE,
+    profile_status      TEXT NOT NULL DEFAULT 'unknown',
+    username            TEXT,
+    display_name        TEXT,
+    created_at          TIMESTAMPTZ,
+    total_trades        INTEGER,
+    total_volume        NUMERIC,
+    total_realized_pnl  NUMERIC,
+    win_rate            NUMERIC,
+    avg_pnl_per_trade   NUMERIC,
+    portfolio_value     NUMERIC,
+    last_enriched_at    TIMESTAMPTZ
 );
+
+CREATE INDEX IF NOT EXISTS idx_wallet_info_last_enriched ON wallet_info(last_enriched_at);
+CREATE INDEX IF NOT EXISTS idx_pm_profiles_total_trades    ON pm_profiles(total_trades);
+CREATE INDEX IF NOT EXISTS idx_pm_profiles_total_realized_pnl           ON pm_profiles(total_realized_pnl);
 """
 
-ALTER_PM_PROFILES_ADD_PROFILE_CREATED_AT_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS profile_created_at TIMESTAMPTZ;
+_PM_PROFILES_MIGRATION = """
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS profile_status TEXT;
+UPDATE pm_profiles SET profile_status = 'unknown' WHERE profile_status IS NULL;
+ALTER TABLE pm_profiles ALTER COLUMN profile_status SET DEFAULT 'unknown';
+ALTER TABLE pm_profiles ALTER COLUMN profile_status SET NOT NULL;
+
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS total_trades INTEGER;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS total_volume NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS total_realized_pnl NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS win_rate NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS avg_pnl_per_trade NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS portfolio_value NUMERIC;
+ALTER TABLE pm_profiles ADD COLUMN IF NOT EXISTS last_enriched_at TIMESTAMPTZ;
+
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS pnl;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS num_trades;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS positions_count;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS active_positions;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS positions_value;
+ALTER TABLE pm_profiles DROP COLUMN IF EXISTS positions_pnl;
+
+DROP INDEX IF EXISTS idx_pm_profiles_pnl;
+DROP INDEX IF EXISTS idx_pm_profiles_num_trades;
+DROP INDEX IF EXISTS idx_pm_profiles_positions_value;
+DROP INDEX IF EXISTS idx_pm_profiles_positions_pnl;
+CREATE INDEX IF NOT EXISTS idx_pm_profiles_total_trades ON pm_profiles(total_trades);
+CREATE INDEX IF NOT EXISTS idx_pm_profiles_total_realized_pnl ON pm_profiles(total_realized_pnl);
 """
 
-ALTER_PM_PROFILES_ADD_PROFILE_STATUS_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS profile_status TEXT NOT NULL DEFAULT 'unknown';
-"""
+# ---------------------------------------------------------------------------
+# Upserts
+# ---------------------------------------------------------------------------
 
-ALTER_PM_PROFILES_ADD_PROXY_WALLET_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS proxy_wallet TEXT;
-"""
-
-ALTER_PM_PROFILES_ADD_PROFILE_IMAGE_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS profile_image TEXT;
-"""
-
-ALTER_PM_PROFILES_ADD_DISPLAY_USERNAME_PUBLIC_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS display_username_public BOOLEAN;
-"""
-
-ALTER_PM_PROFILES_ADD_BIO_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS bio TEXT;
-"""
-
-ALTER_PM_PROFILES_ADD_PSEUDONYM_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS pseudonym TEXT;
-"""
-
-ALTER_PM_PROFILES_ADD_X_USERNAME_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS x_username TEXT;
-"""
-
-ALTER_PM_PROFILES_ADD_VERIFIED_BADGE_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS verified_badge BOOLEAN;
-"""
-
-ALTER_PM_PROFILES_ADD_PROFILE_PAYLOAD_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS profile_payload JSONB;
-"""
-
-ALTER_PM_PROFILES_ADD_STATS_STATUS_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS stats_status TEXT NOT NULL DEFAULT 'unknown';
-"""
-
-ALTER_PM_PROFILES_ADD_POSITIONS_STATUS_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS positions_status TEXT NOT NULL DEFAULT 'unknown';
-"""
-
-ALTER_PM_PROFILES_ADD_POSITIONS_COUNT_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS positions_count INTEGER;
-"""
-
-ALTER_PM_PROFILES_ADD_ACTIVE_POSITIONS_COUNT_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS active_positions_count INTEGER;
-"""
-
-ALTER_PM_PROFILES_ADD_POSITIONS_CURRENT_VALUE_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS positions_current_value NUMERIC;
-"""
-
-ALTER_PM_PROFILES_ADD_POSITIONS_CASH_PNL_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS positions_cash_pnl NUMERIC;
-"""
-
-ALTER_PM_PROFILES_ADD_POSITIONS_REALIZED_PNL_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS positions_realized_pnl NUMERIC;
-"""
-
-ALTER_PM_PROFILES_ADD_POSITIONS_TOTAL_BOUGHT_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS positions_total_bought NUMERIC;
-"""
-
-ALTER_PM_PROFILES_ADD_POSITIONS_INITIAL_VALUE_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS positions_initial_value NUMERIC;
-"""
-
-ALTER_PM_PROFILES_ADD_POSITIONS_PAYLOAD_SQL = """
-ALTER TABLE pm_profiles
-ADD COLUMN IF NOT EXISTS positions_payload JSONB;
-"""
-
-CREATE_WALLET_INFO_INDEX_SQL = """
-CREATE INDEX IF NOT EXISTS idx_wallet_info_last_enriched
-    ON wallet_info(last_enriched_at);
-"""
-
-CREATE_PM_PROFILES_INDEX_SQL = """
-CREATE INDEX IF NOT EXISTS idx_pm_profiles_num_trades
-    ON pm_profiles(num_trades);
-"""
-
-UPSERT_WALLET_INFO_SQL = """
-INSERT INTO wallet_info (
-    wallet,
-    polygon_balance,
-    tx_count,
-    last_enriched_at
-)
+_UPSERT_WALLET_INFO = """
+INSERT INTO wallet_info (wallet, polygon_balance, tx_count, last_enriched_at)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (wallet) DO UPDATE SET
-    polygon_balance = EXCLUDED.polygon_balance,
-    tx_count = EXCLUDED.tx_count,
+    polygon_balance  = EXCLUDED.polygon_balance,
+    tx_count         = EXCLUDED.tx_count,
     last_enriched_at = EXCLUDED.last_enriched_at;
 """
 
-UPSERT_PM_PROFILE_SQL = """
+_UPSERT_PM_PROFILE = """
 INSERT INTO pm_profiles (
-    wallet,
-    profile_status,
-    username,
-    display_name,
-    total_volume,
-    pnl,
-    num_trades,
-    stats_status,
-    positions_status,
-    profile_created_at,
-    proxy_wallet,
-    profile_image,
-    display_username_public,
-    bio,
-    pseudonym,
-    x_username,
-    verified_badge,
-    profile_payload,
-    positions_count,
-    active_positions_count,
-    positions_current_value,
-    positions_cash_pnl,
-    positions_realized_pnl,
-    positions_total_bought,
-    positions_initial_value,
-    positions_payload,
+    wallet, profile_status, username, display_name,
+    created_at, total_trades, total_volume, total_realized_pnl,
+    win_rate, avg_pnl_per_trade, portfolio_value,
     last_enriched_at
-)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (wallet) DO UPDATE SET
-    profile_status = EXCLUDED.profile_status,
-    username = EXCLUDED.username,
-    display_name = EXCLUDED.display_name,
-    total_volume = EXCLUDED.total_volume,
-    pnl = EXCLUDED.pnl,
-    num_trades = EXCLUDED.num_trades,
-    stats_status = EXCLUDED.stats_status,
-    positions_status = EXCLUDED.positions_status,
-    profile_created_at = EXCLUDED.profile_created_at,
-    proxy_wallet = EXCLUDED.proxy_wallet,
-    profile_image = EXCLUDED.profile_image,
-    display_username_public = EXCLUDED.display_username_public,
-    bio = EXCLUDED.bio,
-    pseudonym = EXCLUDED.pseudonym,
-    x_username = EXCLUDED.x_username,
-    verified_badge = EXCLUDED.verified_badge,
-    profile_payload = EXCLUDED.profile_payload,
-    positions_count = EXCLUDED.positions_count,
-    active_positions_count = EXCLUDED.active_positions_count,
-    positions_current_value = EXCLUDED.positions_current_value,
-    positions_cash_pnl = EXCLUDED.positions_cash_pnl,
-    positions_realized_pnl = EXCLUDED.positions_realized_pnl,
-    positions_total_bought = EXCLUDED.positions_total_bought,
-    positions_initial_value = EXCLUDED.positions_initial_value,
-    positions_payload = EXCLUDED.positions_payload,
+    profile_status   = EXCLUDED.profile_status,
+    username         = EXCLUDED.username,
+    display_name     = EXCLUDED.display_name,
+    created_at       = EXCLUDED.created_at,
+    total_trades     = EXCLUDED.total_trades,
+    total_volume     = EXCLUDED.total_volume,
+    total_realized_pnl = EXCLUDED.total_realized_pnl,
+    win_rate         = EXCLUDED.win_rate,
+    avg_pnl_per_trade = EXCLUDED.avg_pnl_per_trade,
+    portfolio_value  = EXCLUDED.portfolio_value,
     last_enriched_at = EXCLUDED.last_enriched_at;
 """
 
-SELECT_LAST_ENRICHED_AT_SQL = """
-SELECT last_enriched_at
-FROM wallet_info
-WHERE wallet = $1;
-"""
+# ---------------------------------------------------------------------------
+# Selects
+# ---------------------------------------------------------------------------
 
-SELECT_WALLET_INFO_SQL = """
+_SELECT_WALLET_INFO = """
 SELECT wallet, polygon_balance, tx_count, last_enriched_at
-FROM wallet_info
-WHERE wallet = $1;
+FROM wallet_info WHERE wallet = $1;
 """
 
-SELECT_PM_PROFILE_SQL = """
-SELECT wallet, profile_status, username, display_name, total_volume, pnl, num_trades, stats_status, positions_status, profile_created_at, proxy_wallet, profile_image, display_username_public, bio, pseudonym, x_username, verified_badge, profile_payload, positions_count, active_positions_count, positions_current_value, positions_cash_pnl, positions_realized_pnl, positions_total_bought, positions_initial_value, positions_payload, last_enriched_at
-FROM pm_profiles
-WHERE wallet = $1;
+_SELECT_PM_PROFILE = """
+SELECT wallet, profile_status, username, display_name,
+       created_at, total_trades, total_volume, total_realized_pnl,
+       win_rate, avg_pnl_per_trade, portfolio_value,
+       last_enriched_at
+FROM pm_profiles WHERE wallet = $1;
 """
 
+_SELECT_LAST_ENRICHED = "SELECT last_enriched_at FROM wallet_info WHERE wallet = $1;"
+_SELECT_ALL_WALLETS   = "SELECT wallet FROM wallet_info;"
 
-async def bootstrap_schema(connection: asyncpg.Connection) -> None:
-    """Create the tables and indexes owned by this service."""
-    await connection.execute(CREATE_WALLET_INFO_SQL)
-    await connection.execute(CREATE_PM_PROFILES_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_PROFILE_STATUS_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_PROFILE_CREATED_AT_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_PROXY_WALLET_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_PROFILE_IMAGE_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_DISPLAY_USERNAME_PUBLIC_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_BIO_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_PSEUDONYM_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_X_USERNAME_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_VERIFIED_BADGE_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_PROFILE_PAYLOAD_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_STATS_STATUS_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_POSITIONS_STATUS_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_POSITIONS_COUNT_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_ACTIVE_POSITIONS_COUNT_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_POSITIONS_CURRENT_VALUE_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_POSITIONS_CASH_PNL_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_POSITIONS_REALIZED_PNL_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_POSITIONS_TOTAL_BOUGHT_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_POSITIONS_INITIAL_VALUE_SQL)
-    await connection.execute(ALTER_PM_PROFILES_ADD_POSITIONS_PAYLOAD_SQL)
-    await connection.execute(CREATE_WALLET_INFO_INDEX_SQL)
-    await connection.execute(CREATE_PM_PROFILES_INDEX_SQL)
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+async def bootstrap_schema(conn: asyncpg.Connection) -> None:
+    """Create tables and indexes if they don't exist."""
+    await conn.execute(_SCHEMA)
+    await conn.execute(_PM_PROFILES_MIGRATION)
+    logger.info("schema bootstrapped")
 
 
-async def warm_seen_wallets(connection: asyncpg.Connection) -> list[str]:
-    """Load known wallets from Postgres so Redis can be warmed on startup."""
-    rows = await connection.fetch("SELECT wallet FROM wallet_info")
-    return [str(row["wallet"]) for row in rows]
-
-
-async def upsert_wallet_info(
-    connection: asyncpg.Connection,
-    info: WalletChainInfo,
-) -> None:
-    """Store wallet-level chain data."""
-    await connection.execute(
-        UPSERT_WALLET_INFO_SQL,
+async def upsert_wallet_info(conn: asyncpg.Connection, info: WalletChainInfo) -> None:
+    await conn.execute(
+        _UPSERT_WALLET_INFO,
         info.wallet,
         info.polygon_balance,
         info.tx_count,
         info.last_enriched_at,
     )
+    logger.debug("upserted wallet_info wallet=%s", info.wallet)
 
 
-async def upsert_pm_profile(
-    connection: asyncpg.Connection,
-    profile: PolymarketProfileInfo,
-) -> None:
-    """Store Polymarket profile data."""
-    await connection.execute(
-        UPSERT_PM_PROFILE_SQL,
-        profile.wallet,
-        profile.profile_status,
-        profile.username,
-        profile.display_name,
-        profile.total_volume,
-        profile.pnl,
-        profile.num_trades,
-        profile.stats_status,
-        profile.positions_status,
-        profile.profile_created_at,
-        profile.proxy_wallet,
-        profile.profile_image,
-        profile.display_username_public,
-        profile.bio,
-        profile.pseudonym,
-        profile.x_username,
-        profile.verified_badge,
-        json.dumps(profile.profile_payload) if profile.profile_payload is not None else None,
-        profile.positions_count,
-        profile.active_positions_count,
-        profile.positions_current_value,
-        profile.positions_cash_pnl,
-        profile.positions_realized_pnl,
-        profile.positions_total_bought,
-        profile.positions_initial_value,
-        json.dumps(profile.positions_payload) if profile.positions_payload is not None else None,
-        profile.last_enriched_at,
+async def upsert_pm_profile(conn: asyncpg.Connection, profile: PolymarketProfileInfo) -> None:
+    await conn.execute(
+        _UPSERT_PM_PROFILE,
+        profile.wallet,           # $1
+        profile.profile_status,   # $2
+        profile.username,         # $3
+        profile.display_name,     # $4
+        profile.created_at,       # $5
+        profile.total_trades,     # $6
+        profile.total_volume,     # $7
+        profile.total_realized_pnl,  # $8
+        profile.win_rate,         # $9
+        profile.avg_pnl_per_trade,  # $10
+        profile.portfolio_value,  # $11
+        profile.last_enriched_at, # $12
     )
+    logger.debug("upserted pm_profile wallet=%s status=%s", profile.wallet, profile.profile_status)
 
 
-async def fetch_last_enriched_at(
-    connection: asyncpg.Connection,
-    wallet: str,
-) -> datetime | None:
-    """Return the last enrichment timestamp for a wallet, if present."""
-    row = await connection.fetchrow(SELECT_LAST_ENRICHED_AT_SQL, wallet)
-    if row is None:
-        return None
-    return row["last_enriched_at"]
+async def fetch_last_enriched_at(conn: asyncpg.Connection, wallet: str) -> datetime | None:
+    row = await conn.fetchrow(_SELECT_LAST_ENRICHED, wallet)
+    return row["last_enriched_at"] if row else None
 
 
-async def fetch_wallet_info(
-    connection: asyncpg.Connection,
-    wallet: str,
-) -> dict[str, Any] | None:
-    """Fetch a wallet_info row by wallet."""
-    row = await connection.fetchrow(SELECT_WALLET_INFO_SQL, wallet)
-    return dict(row) if row is not None else None
+async def fetch_wallet_info(conn: asyncpg.Connection, wallet: str) -> dict[str, Any] | None:
+    row = await conn.fetchrow(_SELECT_WALLET_INFO, wallet)
+    return dict(row) if row else None
 
 
-async def fetch_pm_profile(
-    connection: asyncpg.Connection,
-    wallet: str,
-) -> dict[str, Any] | None:
-    """Fetch a pm_profiles row by wallet."""
-    row = await connection.fetchrow(SELECT_PM_PROFILE_SQL, wallet)
-    return dict(row) if row is not None else None
+async def fetch_pm_profile(conn: asyncpg.Connection, wallet: str) -> dict[str, Any] | None:
+    row = await conn.fetchrow(_SELECT_PM_PROFILE, wallet)
+    return dict(row) if row else None
 
 
-async def fetch_full_profile(
-    connection: asyncpg.Connection,
-    wallet: str,
-) -> FullWalletProfile:
-    """Fetch the combined wallet and profile view."""
-    wallet_info = await connection.fetchrow(SELECT_WALLET_INFO_SQL, wallet)
-    profile = await connection.fetchrow(SELECT_PM_PROFILE_SQL, wallet)
+async def fetch_full_profile(conn: asyncpg.Connection, wallet: str) -> FullWalletProfile:
+    wi, pm = await asyncio.gather(
+        conn.fetchrow(_SELECT_WALLET_INFO, wallet),
+        conn.fetchrow(_SELECT_PM_PROFILE, wallet),
+    )
     return FullWalletProfile(
         wallet=wallet,
-        polygon_balance=wallet_info["polygon_balance"] if wallet_info is not None else None,
-        tx_count=wallet_info["tx_count"] if wallet_info is not None else None,
-        username=profile["username"] if profile is not None else None,
-        display_name=profile["display_name"] if profile is not None else None,
-        total_volume=profile["total_volume"] if profile is not None else None,
-        pnl=profile["pnl"] if profile is not None else None,
-        num_trades=profile["num_trades"] if profile is not None else None,
+        polygon_balance=wi["polygon_balance"]  if wi else None,
+        tx_count=wi["tx_count"]                if wi else None,
+        profile_status=pm["profile_status"]    if pm else None,
+        username=pm["username"]                if pm else None,
+        display_name=pm["display_name"]        if pm else None,
+        created_at=pm["created_at"]            if pm else None,
+        total_trades=pm["total_trades"]        if pm else None,
+        total_volume=pm["total_volume"]        if pm else None,
+        total_realized_pnl=pm["total_realized_pnl"] if pm else None,
+        win_rate=pm["win_rate"]                if pm else None,
+        avg_pnl_per_trade=pm["avg_pnl_per_trade"] if pm else None,
+        portfolio_value=pm["portfolio_value"]  if pm else None,
         last_enriched_at=(
-            profile["last_enriched_at"]
-            if profile is not None and profile["last_enriched_at"] is not None
-            else wallet_info["last_enriched_at"]
-            if wallet_info is not None
-            else None
+            pm["last_enriched_at"]  if pm  and pm["last_enriched_at"]  else
+            wi["last_enriched_at"]  if wi  else None
         ),
     )
 
 
-async def seed_seen_wallets(
-    redis_client: Any,
-    wallets: Iterable[str],
-) -> None:
-    """Seed the Redis set used as a warm cache of seen wallets."""
-    wallets_list = list(wallets)
-    if not wallets_list:
-        return
-    await redis_client.sadd("seen_wallets", *wallets_list)
+async def all_wallet_addresses(conn: asyncpg.Connection) -> list[str]:
+    rows = await conn.fetch(_SELECT_ALL_WALLETS)
+    return [str(r["wallet"]) for r in rows]
+
+
+def is_stale(last_enriched_at: datetime, ttl_hours: int = ENRICHMENT_TTL_HOURS) -> bool:
+    if last_enriched_at.tzinfo is None:
+        last_enriched_at = last_enriched_at.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - last_enriched_at > timedelta(hours=ttl_hours)
+
+
+# asyncio needed inside fetch_full_profile
+import asyncio  # noqa: E402 — placed after all defs to avoid circular at module level

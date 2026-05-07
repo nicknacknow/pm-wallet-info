@@ -6,19 +6,17 @@ services:
     container_name: pm-wallet-info
     ports:
       - "18551:50051"
-      - "18002:8002"
     environment:
-      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5432/trade_store}
-      CHANNEL: ${CHANNEL:-trades.raw}
-      METRICS_PORT: ${METRICS_PORT:-8002}
-      GRPC_PORT: ${GRPC_PORT:-50051}
-      RETRY_DELAY_SECONDS: ${RETRY_DELAY_SECONDS:-5}
-      ENRICHMENT_TTL_HOURS: ${ENRICHMENT_TTL_HOURS:-24}
-      POLYGONSCAN_API_KEY: ${POLYGONSCAN_API_KEY}
-      POLYGONSCAN_BASE_URL: ${POLYGONSCAN_BASE_URL:-https://api.polygonscan.com/api}
-      POLYMARKET_BASE_URL: ${POLYMARKET_BASE_URL:-https://gamma-api.polymarket.com/public-profile}
-      POLYMARKET_DATA_BASE_URL: ${POLYMARKET_DATA_BASE_URL:-https://data-api.polymarket.com}
+      REDIS_URL:               ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      DATABASE_URL:            ${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5432/trade_store}
+      CHANNEL:                 ${CHANNEL:-trades.raw}
+      GRPC_PORT:               ${GRPC_PORT:-50051}
+      RETRY_DELAY_SECONDS:     ${RETRY_DELAY_SECONDS:-5}
+      ENRICHMENT_TTL_HOURS:    ${ENRICHMENT_TTL_HOURS:-24}
+      POLYGONSCAN_API_KEY:     ${POLYGONSCAN_API_KEY}
+      POLYMARKET_PROFILE_URL:  ${POLYMARKET_PROFILE_URL:-https://gamma-api.polymarket.com/public-profile}
+      POLYMARKET_CLOSED_POS_URL: ${POLYMARKET_CLOSED_POS_URL:-https://data-api.polymarket.com/closed-positions}
+      POLYMARKET_VALUE_URL:    ${POLYMARKET_VALUE_URL:-https://data-api.polymarket.com/value}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

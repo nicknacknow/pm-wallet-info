@@ -1,31 +1,41 @@
-"""Runtime settings for pm-wallet-info."""
-
+"""Runtime settings — every value overridable via environment variable."""
 from __future__ import annotations
-
 import os
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# Redis
+REDIS_URL    = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+CHANNEL      = os.getenv("CHANNEL", "trades.raw")
+
+# Postgres
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/wallet_info",
+    "postgresql://postgres:postgres@localhost:5432/trade_store",
 )
-CHANNEL = os.getenv("CHANNEL", "trades.raw")
-RETRY_DELAY_SECONDS = int(os.getenv("RETRY_DELAY_SECONDS", "5"))
+
+# gRPC / metrics
+GRPC_PORT    = int(os.getenv("GRPC_PORT", "50051"))
 METRICS_PORT = int(os.getenv("METRICS_PORT", "8002"))
-GRPC_PORT = int(os.getenv("GRPC_PORT", "50051"))
+
+# Enrichment
 ENRICHMENT_TTL_HOURS = int(os.getenv("ENRICHMENT_TTL_HOURS", "24"))
-POLYGONSCAN_API_KEY = os.getenv("POLYGONSCAN_API_KEY", "")
-POLYGONSCAN_BASE_URL = os.getenv(
-    "POLYGONSCAN_BASE_URL",
-    "https://api.polygonscan.com/api",
-)
-POLYMARKET_BASE_URL = os.getenv(
-    "POLYMARKET_BASE_URL",
+RETRY_DELAY_SECONDS  = int(os.getenv("RETRY_DELAY_SECONDS", "5"))
+
+# External APIs
+POLYGONSCAN_API_KEY  = os.getenv("POLYGONSCAN_API_KEY", "")
+POLYGONSCAN_BASE_URL = os.getenv("POLYGONSCAN_BASE_URL", "https://api.polygonscan.com/api")
+POLYMARKET_PROFILE_URL = os.getenv(
+    "POLYMARKET_PROFILE_URL",
     "https://gamma-api.polymarket.com/public-profile",
 )
-POLYMARKET_DATA_BASE_URL = os.getenv(
-    "POLYMARKET_DATA_BASE_URL",
-    "https://data-api.polymarket.com",
+POLYMARKET_CLOSED_POS_URL = os.getenv(
+    "POLYMARKET_CLOSED_POS_URL",
+    "https://data-api.polymarket.com/closed-positions",
 )
-HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "5"))
-HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "2"))
+POLYMARKET_VALUE_URL = os.getenv(
+    "POLYMARKET_VALUE_URL",
+    "https://data-api.polymarket.com/value",
+)
+
+# HTTP client
+HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "8"))
+HTTP_MAX_RETRIES     = int(os.getenv("HTTP_MAX_RETRIES", "2"))
