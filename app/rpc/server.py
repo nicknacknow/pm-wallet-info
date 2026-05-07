@@ -37,10 +37,10 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
     async def GetWalletInfo(self, request, context):
         try:
             info = await fetch_wallet_chain_info(request.wallet)
-        except Exception:
+        except Exception as exc:
             logger.exception("failed to fetch wallet info wallet=%s", request.wallet)
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details("failed to fetch wallet info")
+            context.set_details(f"failed to fetch wallet info: {type(exc).__name__}")
             return wallet_pb2.WalletInfo()
         return wallet_pb2.WalletInfo(
             wallet=info.wallet,
@@ -52,10 +52,10 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
     async def GetPolymarketProfile(self, request, context):
         try:
             profile = await fetch_polymarket_profile(request.wallet)
-        except Exception:
+        except Exception as exc:
             logger.exception("failed to fetch polymarket profile wallet=%s", request.wallet)
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details("failed to fetch polymarket profile")
+            context.set_details(f"failed to fetch polymarket profile: {type(exc).__name__}")
             return wallet_pb2.PolymarketProfile()
         return wallet_pb2.PolymarketProfile(
             wallet=profile.wallet,
@@ -87,7 +87,7 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
                 profile_res,
             )
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details("failed to fetch full profile")
+            context.set_details("failed to fetch full profile: both sources unavailable")
             return wallet_pb2.FullProfile()
         if isinstance(chain_res, Exception):
             logger.warning("partial full profile failure wallet=%s chain_error=%s", request.wallet, chain_res)
