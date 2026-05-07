@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-import wallet_pb2 as wallet__pb2
+from app.generated import wallet_pb2 as wallet__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__

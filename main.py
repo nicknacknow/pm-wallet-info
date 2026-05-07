@@ -1,5 +1,4 @@
-"""Run pm-wallet-info."""
-
+"""Entrypoint — starts worker + gRPC server concurrently."""
 from __future__ import annotations
 
 import asyncio
@@ -8,33 +7,31 @@ import logging
 import asyncpg
 
 from app.db import bootstrap_schema
-from app.metrics import start_metrics_server
-from app.pubsub.worker import stream_trade_events
+from app.pubsub.worker import run_worker
 from app.rpc.server import run_grpc_server
 from app.settings import DATABASE_URL, GRPC_PORT
 
 
-logger = logging.getLogger(__name__)
-
-
 async def main() -> None:
-    """Start metrics, seed the schema, and run worker + gRPC server."""
-    start_metrics_server()
-    logger.info("metrics server started")
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logger = logging.getLogger(__name__)
+
+    pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
     try:
-        async with db_pool.acquire() as connection:
-            await bootstrap_schema(connection)
-        logger.info("database schema bootstrapped")
+        async with pool.acquire() as conn:
+            await bootstrap_schema(conn)
+        logger.info("schema ready")
 
         await asyncio.gather(
-            run_grpc_server(db_pool, GRPC_PORT),
-            stream_trade_events(db_pool),
+            run_grpc_server(pool, GRPC_PORT),
+            run_worker(pool),
         )
     finally:
-        await db_pool.close()
+        await pool.close()
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     asyncio.run(main())

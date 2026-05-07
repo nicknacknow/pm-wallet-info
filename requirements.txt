@@ -1,7 +1,8 @@
 asyncpg
-grpcio
-grpcio-tools
+grpcio==1.80.0
+grpcio-tools==1.80.0
 httpx
-prometheus-client
 protobuf
-redis
+redis[asyncio]
+pytest
+pytest-asyncio
