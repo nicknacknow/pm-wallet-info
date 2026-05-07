@@ -37,8 +37,8 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
     async def GetWalletInfo(self, request, context):
         try:
             info = await fetch_wallet_chain_info(request.wallet)
-        except Exception as exc:
-            logger.exception("failed to fetch wallet info wallet=%s: %s", request.wallet, exc)
+        except Exception:
+            logger.exception("failed to fetch wallet info wallet=%s", request.wallet)
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details("failed to fetch wallet info")
             return wallet_pb2.WalletInfo()
@@ -52,8 +52,8 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
     async def GetPolymarketProfile(self, request, context):
         try:
             profile = await fetch_polymarket_profile(request.wallet)
-        except Exception as exc:
-            logger.exception("failed to fetch polymarket profile wallet=%s: %s", request.wallet, exc)
+        except Exception:
+            logger.exception("failed to fetch polymarket profile wallet=%s", request.wallet)
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details("failed to fetch polymarket profile")
             return wallet_pb2.PolymarketProfile()
@@ -80,7 +80,12 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
         )
 
         if isinstance(chain_res, Exception) and isinstance(profile_res, Exception):
-            logger.exception("failed to fetch full profile wallet=%s", request.wallet)
+            logger.error(
+                "failed to fetch full profile wallet=%s chain_error=%s profile_error=%s",
+                request.wallet,
+                chain_res,
+                profile_res,
+            )
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details("failed to fetch full profile")
             return wallet_pb2.FullProfile()
