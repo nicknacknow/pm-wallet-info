@@ -89,15 +89,20 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details("failed to fetch full profile")
             return wallet_pb2.FullProfile()
+        if isinstance(chain_res, Exception):
+            logger.warning("partial full profile failure wallet=%s chain_error=%s", request.wallet, chain_res)
+        if isinstance(profile_res, Exception):
+            logger.warning("partial full profile failure wallet=%s profile_error=%s", request.wallet, profile_res)
 
         chain = None if isinstance(chain_res, Exception) else chain_res
         profile = None if isinstance(profile_res, Exception) else profile_res
 
-        last_enriched_at = None
+        last_enriched_candidates = []
+        if chain and chain.last_enriched_at:
+            last_enriched_candidates.append(chain.last_enriched_at)
         if profile and profile.last_enriched_at:
-            last_enriched_at = profile.last_enriched_at
-        elif chain and chain.last_enriched_at:
-            last_enriched_at = chain.last_enriched_at
+            last_enriched_candidates.append(profile.last_enriched_at)
+        last_enriched_at = max(last_enriched_candidates) if last_enriched_candidates else None
 
         return wallet_pb2.FullProfile(
             wallet=request.wallet,
