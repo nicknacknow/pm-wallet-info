@@ -3,20 +3,11 @@ package wallet;
 import "google/protobuf/timestamp.proto";
 
 service WalletService {
-  rpc GetWalletInfo        (WalletRequest) returns (WalletInfo);
   rpc GetPolymarketProfile (WalletRequest) returns (PolymarketProfile);
-  rpc GetFullProfile       (WalletRequest) returns (FullProfile);
 }
 
 message WalletRequest {
   string wallet = 1;
-}
-
-message WalletInfo {
-  string wallet          = 1;
-  string polygon_balance = 2;
-  int32  tx_count        = 3;
-  google.protobuf.Timestamp last_enriched_at = 4;
 }
 
 message PolymarketProfile {
@@ -32,21 +23,4 @@ message PolymarketProfile {
   string avg_pnl_per_trade = 10;
   string portfolio_value   = 11;
   google.protobuf.Timestamp last_enriched_at = 12;
-}
-
-message FullProfile {
-  string wallet          = 1;
-  string polygon_balance = 2;
-  int32  tx_count        = 3;
-  string profile_status  = 4;
-  string username        = 5;
-  string display_name    = 6;
-  google.protobuf.Timestamp created_at = 7;
-  int32  total_trades      = 8;
-  string total_volume      = 9;
-  string total_realized_pnl = 10;
-  string win_rate          = 11;
-  string avg_pnl_per_trade = 12;
-  string portfolio_value   = 13;
-  google.protobuf.Timestamp last_enriched_at = 14;
 }

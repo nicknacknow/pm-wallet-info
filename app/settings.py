@@ -21,8 +21,6 @@ ENRICHMENT_TTL_HOURS = int(os.getenv("ENRICHMENT_TTL_HOURS", "24"))
 RETRY_DELAY_SECONDS  = int(os.getenv("RETRY_DELAY_SECONDS", "5"))
 
 # External APIs
-POLYGONSCAN_API_KEY  = os.getenv("POLYGONSCAN_API_KEY", "")
-POLYGONSCAN_BASE_URL = os.getenv("POLYGONSCAN_BASE_URL", "https://api.polygonscan.com/api")
 POLYMARKET_PROFILE_URL = os.getenv(
     "POLYMARKET_PROFILE_URL",
     "https://gamma-api.polymarket.com/public-profile",

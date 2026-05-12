@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from app.generated import wallet_pb2 as wallet__pb2
+from . import wallet_pb2 as wallet__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -34,39 +34,17 @@ class WalletServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.GetWalletInfo = channel.unary_unary(
-                '/wallet.WalletService/GetWalletInfo',
-                request_serializer=wallet__pb2.WalletRequest.SerializeToString,
-                response_deserializer=wallet__pb2.WalletInfo.FromString,
-                _registered_method=True)
         self.GetPolymarketProfile = channel.unary_unary(
                 '/wallet.WalletService/GetPolymarketProfile',
                 request_serializer=wallet__pb2.WalletRequest.SerializeToString,
                 response_deserializer=wallet__pb2.PolymarketProfile.FromString,
-                _registered_method=True)
-        self.GetFullProfile = channel.unary_unary(
-                '/wallet.WalletService/GetFullProfile',
-                request_serializer=wallet__pb2.WalletRequest.SerializeToString,
-                response_deserializer=wallet__pb2.FullProfile.FromString,
                 _registered_method=True)
 
 
 class WalletServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def GetWalletInfo(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def GetPolymarketProfile(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetFullProfile(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -75,20 +53,10 @@ class WalletServiceServicer(object):
 
 def add_WalletServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'GetWalletInfo': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetWalletInfo,
-                    request_deserializer=wallet__pb2.WalletRequest.FromString,
-                    response_serializer=wallet__pb2.WalletInfo.SerializeToString,
-            ),
             'GetPolymarketProfile': grpc.unary_unary_rpc_method_handler(
                     servicer.GetPolymarketProfile,
                     request_deserializer=wallet__pb2.WalletRequest.FromString,
                     response_serializer=wallet__pb2.PolymarketProfile.SerializeToString,
-            ),
-            'GetFullProfile': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetFullProfile,
-                    request_deserializer=wallet__pb2.WalletRequest.FromString,
-                    response_serializer=wallet__pb2.FullProfile.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -100,33 +68,6 @@ def add_WalletServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class WalletService(object):
     """Missing associated documentation comment in .proto file."""
-
-    @staticmethod
-    def GetWalletInfo(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/wallet.WalletService/GetWalletInfo',
-            wallet__pb2.WalletRequest.SerializeToString,
-            wallet__pb2.WalletInfo.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
 
     @staticmethod
     def GetPolymarketProfile(request,
@@ -145,33 +86,6 @@ class WalletService(object):
             '/wallet.WalletService/GetPolymarketProfile',
             wallet__pb2.WalletRequest.SerializeToString,
             wallet__pb2.PolymarketProfile.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetFullProfile(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/wallet.WalletService/GetFullProfile',
-            wallet__pb2.WalletRequest.SerializeToString,
-            wallet__pb2.FullProfile.FromString,
             options,
             channel_credentials,
             insecure,

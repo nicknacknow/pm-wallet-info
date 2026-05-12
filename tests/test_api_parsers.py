@@ -2,7 +2,6 @@
 from decimal import Decimal
 import pytest
 
-from app.api.polygonscan import _parse_decimal, _parse_int
 from app.api.polymarket import (
     _dec,
     _extract_positions,
@@ -11,36 +10,6 @@ from app.api.polymarket import (
     _active_count,
     _parse_dt,
 )
-
-
-# ---------------------------------------------------------------------------
-# polygonscan parsers
-# ---------------------------------------------------------------------------
-
-class TestPolygonscanParsers:
-    def test_parse_decimal_string(self):
-        assert _parse_decimal("1000000000000000000") == Decimal("1000000000000000000")
-
-    def test_parse_decimal_none(self):
-        assert _parse_decimal(None) is None
-
-    def test_parse_decimal_invalid(self):
-        assert _parse_decimal("not-a-number") is None
-
-    def test_parse_int_decimal_string(self):
-        assert _parse_int("42") == 42
-
-    def test_parse_int_hex(self):
-        assert _parse_int("0x2a") == 42
-
-    def test_parse_int_plain_int(self):
-        assert _parse_int(42) == 42
-
-    def test_parse_int_none(self):
-        assert _parse_int(None) is None
-
-    def test_parse_int_non_numeric_string(self):
-        assert _parse_int("abc") is None
 
 
 # ---------------------------------------------------------------------------
