@@ -1,4 +1,4 @@
-"""gRPC server — serves wallet data from the owned Postgres tables."""
+"""gRPC server — serves wallet data from pm_profiles."""
 from __future__ import annotations
 
 import logging
@@ -9,7 +9,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 import asyncpg
 
-from app.db import fetch_full_profile, fetch_pm_profile, fetch_wallet_info
+from app.db import fetch_pm_profile
 from app.generated import wallet_pb2, wallet_pb2_grpc
 
 logger = logging.getLogger(__name__)
@@ -37,20 +37,6 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
 
-    async def GetWalletInfo(self, request, context):
-        async with self._pool.acquire() as conn:
-            row = await fetch_wallet_info(conn, request.wallet)
-        if row is None:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details("wallet not found")
-            return wallet_pb2.WalletInfo()
-        return wallet_pb2.WalletInfo(
-            wallet=row["wallet"],
-            polygon_balance=_str(row.get("polygon_balance")),
-            tx_count=_int(row.get("tx_count")),
-            last_enriched_at=_ts(row.get("last_enriched_at")),
-        )
-
     async def GetPolymarketProfile(self, request, context):
         async with self._pool.acquire() as conn:
             row = await fetch_pm_profile(conn, request.wallet)
@@ -71,30 +57,6 @@ class WalletServicer(wallet_pb2_grpc.WalletServiceServicer):
             avg_pnl_per_trade=_str(row.get("avg_pnl_per_trade")),
             portfolio_value=_str(row.get("portfolio_value")),
             last_enriched_at=_ts(row.get("last_enriched_at")),
-        )
-
-    async def GetFullProfile(self, request, context):
-        async with self._pool.acquire() as conn:
-            profile = await fetch_full_profile(conn, request.wallet)
-        if profile.last_enriched_at is None:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details("wallet not found")
-            return wallet_pb2.FullProfile()
-        return wallet_pb2.FullProfile(
-            wallet=profile.wallet,
-            polygon_balance=_str(profile.polygon_balance),
-            tx_count=_int(profile.tx_count),
-            profile_status=_str(profile.profile_status),
-            username=_str(profile.username),
-            display_name=_str(profile.display_name),
-            created_at=_ts(profile.created_at),
-            total_trades=_int(profile.total_trades),
-            total_volume=_str(profile.total_volume),
-            total_realized_pnl=_str(profile.total_realized_pnl),
-            win_rate=_str(profile.win_rate),
-            avg_pnl_per_trade=_str(profile.avg_pnl_per_trade),
-            portfolio_value=_str(profile.portfolio_value),
-            last_enriched_at=_ts(profile.last_enriched_at),
         )
 
 

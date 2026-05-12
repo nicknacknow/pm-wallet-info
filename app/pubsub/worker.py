@@ -12,15 +12,12 @@ import redis.asyncio as aioredis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from app.api.polymarket import fetch_polymarket_profile
-from app.api.polygonscan import fetch_wallet_chain_info
 from app.db import (
     all_wallet_addresses,
     fetch_last_enriched_at,
     is_stale,
     upsert_pm_profile,
-    upsert_wallet_info,
 )
-from app.models import WalletChainInfo
 from app.settings import CHANNEL, ENRICHMENT_TTL_HOURS, REDIS_URL, RETRY_DELAY_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -33,34 +30,16 @@ _SEEN_KEY = "seen_wallets"
 # ---------------------------------------------------------------------------
 
 async def enrich_wallet(pool: asyncpg.Pool, wallet: str) -> None:
-    """Fetch Polygonscan + Polymarket concurrently, then upsert both tables."""
+    """Fetch Polymarket profile and upsert into pm_profiles."""
     logger.info("enriching wallet=%s", wallet)
-    chain_res, profile_res = await asyncio.gather(
-        fetch_wallet_chain_info(wallet),
-        fetch_polymarket_profile(wallet),
-        return_exceptions=True,
-    )
-
-    # wallet_info must exist before pm_profiles (FK constraint)
-    chain_info: WalletChainInfo
-    if isinstance(chain_res, Exception):
-        logger.warning("polygonscan failed for wallet=%s: %s", wallet, chain_res)
-        chain_info = WalletChainInfo(
-            wallet=wallet,
-            polygon_balance=None,
-            tx_count=None,
-            last_enriched_at=datetime.now(timezone.utc),
-        )
-    else:
-        chain_info = chain_res
+    try:
+        profile = await fetch_polymarket_profile(wallet)
+    except Exception as exc:
+        logger.warning("polymarket failed for wallet=%s: %s", wallet, exc)
+        return
 
     async with pool.acquire() as conn:
-        await upsert_wallet_info(conn, chain_info)
-
-        if isinstance(profile_res, Exception):
-            logger.warning("polymarket failed for wallet=%s: %s", wallet, profile_res)
-        else:
-            await upsert_pm_profile(conn, profile_res)
+        await upsert_pm_profile(conn, profile)
 
     logger.info("enrichment complete wallet=%s", wallet)
 
