@@ -2,16 +2,16 @@
 
 `pm-wallet-info` is the enrichment and query service for wallet-level Polymarket data.
 
-This repository starts as a barebones scaffold. The first implementation pass should stay focused on service boundaries, ownership, and a minimal runtime shape that matches the related services in this project.
-
 ## Current status
 
-- Repository scaffold only
-- No runtime code yet
+- **Implemented** — running service with a real runtime: outbound API clients, Redis
+  consumer, gRPC server, persistence, and metrics (see [Structure](#structure))
+- In active development — observability hardening and the background refresh worker are
+  still on the roadmap (see [Future work](#future-work))
 - Local environment files are kept out of version control by default
-- This service is intended to share the same Postgres instance and logical database as pm-trades-db
+- This service shares the same Postgres instance and logical database as pm-trades-db
 - The wallet service currently points at the shared `trade_store` database on the project network
-- The repo is now split into `app/api`, `app/pubsub`, and `app/rpc` for clearer ownership
+- The repo is split into `app/api`, `app/pubsub`, and `app/rpc` for clearer ownership
 
 ## Intended responsibilities
 
